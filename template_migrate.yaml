@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+    aws-rdsdynamo - template for DB migration
+    
+Parameters:
+  Env:
+    Type: String
+    Default: 'dev'
+    Description: 'ID for environment (stage). Must be lowercase, because of S3 bucket name.'
+  CFStackName:
+    Type: String
+    Default: 'aws-rdsdynamo'
+
+Resources:
+
+  #ROLE - general role for most of the lamdas
+  LambdaGeneralRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-lambda-role
+      AssumeRolePolicyDocument:
+          Statement:
+              - Effect: Allow
+                Principal:
+                    Service: lambda.amazonaws.com
+                Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+          - PolicyName: !Sub ${AWS::StackName}-lambda-policy
+            PolicyDocument:
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - secretsmanager:GetSecretValue
+                        - secretsmanager:PutSecretValue
+                        - secretsmanager:DeleteSecret
+                        - secretsmanager:DescribeSecret
+                        - secretsmanager:TagResource
+                      Resource: '*' #'arn:aws:secretsmanager:*:*:secret:rds-db-credentials/*'
+                    - Effect: Allow
+                      Action:
+                        - secretsmanager:CreateSecret
+                        - secretsmanager:ListSecrets
+                        - secretsmanager:GetRandomPassword
+                        - tag:GetResources
+                        - rds-data:BatchExecuteStatement
+                        - rds-data:BeginTransaction
+                        - rds-data:CommitTransaction
+                        - rds-data:ExecuteStatement
+                        - rds-data:RollbackTransaction
+                      Resource: '*'
+
+  #FUNCTION
+  IaCRDSMigrationFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: iac_rds/
+      Handler: app.handler
+      # Code:      
+      #   ZipFile: >
+      #     var response = require('cfn-response');
+      #     exports.handler = function(event, context) {
+      #       response.send(event, context, response.SUCCESS, {Value:5});
+      #     };
+      # Handler: index.handler
+      Runtime: nodejs8.10
+      Timeout: 30
+      Role: !GetAtt LambdaGeneralRole.Arn
+      Environment:
+        Variables:
+          DB_NAME: 
+            'Fn::ImportValue': !Sub '${CFStackName}-DBName'
+          SECRET_ARN: 
+            'Fn::ImportValue': !Sub '${CFStackName}-DBSecretArn' 
+          DB_ARN: 
+            'Fn::ImportValue': !Sub '${CFStackName}-DBArn' 
+          TABLE_NAME: 
+            'Fn::ImportValue': !Sub '${CFStackName}-TableName' 
+  AuroraServerlessClusterMigration:
+    Type: AWS::CloudFormation::CustomResource
+    Properties: 
+      ServiceToken: !GetAtt IaCRDSMigrationFunction.Arn
+      Version: 2
+      TableName: 
+        'Fn::ImportValue': !Sub '${CFStackName}-TableName'
+
+

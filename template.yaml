@@ -1,0 +1,283 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+    aws-rdsdynamo
+
+    Sample SAM Template for aws-rdsdynamo
+    
+Parameters:
+  Env:
+    Type: String
+    Default: 'dev'
+    Description: 'ID for environment (stage). Must be lowercase, because of S3 bucket name.'
+  DBName:
+    Type: String
+    Default: 'TestDB'
+  TableName:
+    Type: String
+    Default: 'test3_tbl'
+
+  # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+    Function:
+        Timeout: 3
+
+
+Resources:
+
+  #VPC
+  Vpc:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      Parameters:
+        ClassB: 0
+        NumberOfAvailabilityZones: 3 
+        S3Endpoint: 'true'
+        DynamoDBEndpoint: 'true' 
+        FlowLog: 'false' 
+        NatGateways: 'false' 
+      TemplateURL: './node_modules/@cfn-modules/vpc/module.yml'
+
+  #AURORA SECURITY GROUP
+  ClientSg:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      Parameters:
+        VpcModule: !GetAtt 'Vpc.Outputs.StackName' # required
+      TemplateURL: './node_modules/@cfn-modules/client-sg/module.yml'
+  
+  #KEY - #TODO change DeletionPolicy in module for production or when you want to keep RDS
+  Key:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: './node_modules/@cfn-modules/kms-key/module.yml'
+  DBSecret:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      Parameters:
+        KmsKeyModule: !GetAtt 'Key.Outputs.StackName' 
+      TemplateURL: './node_modules/@cfn-modules/secret/module.yml'
+  #AURORA -  #TODO change DeletionPolicy in module for production or when you want to keep RDS
+  AuroraServerlessCluster:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      Parameters:
+        VpcModule: !GetAtt 'Vpc.Outputs.StackName' 
+        ClientSgModule: !GetAtt 'ClientSg.Outputs.StackName'
+        KmsKeyModule: !GetAtt 'Key.Outputs.StackName' 
+        SecretModule: !GetAtt 'DBSecret.Outputs.StackName'
+        Engine: 'aurora' 
+        DBName: !Ref DBName 
+        DBBackupRetentionPeriod: '7' 
+        DBMasterUsername: master
+        PreferredBackupWindow: '09:54-10:24' 
+        PreferredMaintenanceWindow: 'sat:07:00-sat:07:30' 
+        AutoPause: 'true' 
+        SecondsUntilAutoPause: '300' 
+        MaxCapacity: '2' 
+        MinCapacity: '2' 
+      TemplateURL: './node_modules/@cfn-modules/rds-aurora-serverless/module.yml'
+  
+  #Secret for DataApi 
+  RDSDataApiSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      KmsKeyId: !GetAtt 'Key.Outputs.Arn'
+      Name: DataApiSecret
+      #TODO - resourceId is not available in cloudformation - we need to update it manually
+      SecretString: !Sub >
+        {
+          "dbInstanceIdentifier": "${AuroraServerlessCluster.Outputs.Name}", 
+          "engine": "aurora", 
+          "host": "${AuroraServerlessCluster.Outputs.DnsName}", 
+          "port": 3306,
+          "resourceId": "TODO - change", 
+          "username": "master",
+          "password": "{{resolve:secretsmanager:${DBSecret.Outputs.Arn}}}"
+        }     
+
+  #ROLE - general role for most of the lamdas
+  LambdaGeneralRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-lambda-role
+      AssumeRolePolicyDocument:
+          Statement:
+              - Effect: Allow
+                Principal:
+                    Service: lambda.amazonaws.com
+                Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+          - PolicyName: !Sub ${AWS::StackName}-lambda-policy
+            PolicyDocument:
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - secretsmanager:GetSecretValue
+                        - secretsmanager:PutSecretValue
+                        - secretsmanager:DeleteSecret
+                        - secretsmanager:DescribeSecret
+                        - secretsmanager:TagResource
+                      Resource: '*' #'arn:aws:secretsmanager:*:*:secret:rds-db-credentials/*'
+                    - Effect: Allow
+                      Action:
+                        - secretsmanager:CreateSecret
+                        - secretsmanager:ListSecrets
+                        - secretsmanager:GetRandomPassword
+                        - tag:GetResources
+                        - rds-data:BatchExecuteStatement
+                        - rds-data:BeginTransaction
+                        - rds-data:CommitTransaction
+                        - rds-data:ExecuteStatement
+                        - rds-data:RollbackTransaction
+                      Resource: '*'
+                    - Effect: Allow
+                      Action:
+                        - dynamodb:List*
+                        - dynamodb:DescribeReservedCapacity*
+                        - dynamodb:DescribeLimits
+                        - dynamodb:DescribeTimeToLive
+                      Resource: '*'
+                    - Effect: Allow
+                      Action:
+                        - dynamodb:BatchGet*
+                        - dynamodb:DescribeStream
+                        - dynamodb:DescribeTable
+                        - dynamodb:Get*
+                        - dynamodb:Query*
+                        - dynamodb:Scan*
+                        - dynamodb:BatchWrite*
+                        - dynamodb:CreateTable
+                        - dynamodb:Delete*
+                        - dynamodb:Update*
+                        - dynamodb:PutItem*
+                      Resource: !GetAtt TestTable.Arn
+                    - Effect: Allow
+                      Action:
+                        - dynamodb:GetRecords
+                        - dynamodb:DescribeStream
+                        - dynamodb:DescribeTable
+                        - dynamodb:Get*
+                        - dynamodb:Query*
+                        - dynamodb:Scan*
+                        - dynamodb:BatchWrite*
+                        - dynamodb:CreateTable
+                        - dynamodb:Delete*
+                        - dynamodb:Update*
+                        - dynamodb:PutItem*
+                      Resource: 
+                        - !GetAtt TestTable.Arn
+                        - !GetAtt TestTable.StreamArn
+
+  #FUNCTIONS
+  ListFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: list/
+      Handler: app.lambdaHandler
+      Runtime: nodejs10.x
+      Role: !GetAtt LambdaGeneralRole.Arn
+      Environment:
+        Variables:
+          SECRET_ARN: !Ref RDSDataApiSecret
+          DB_ARN: !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${AuroraServerlessCluster.Outputs.Name}'
+          TABLE_NAME: !Ref TableName
+          DB_NAME: !Ref DBName
+      Events:
+        List:
+          Type: Api 
+          Properties:
+            Path: /list
+            Method: get
+  CrudFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: crud/
+      Handler: app.lambdaHandler
+      Runtime: nodejs10.x
+      Role: !GetAtt LambdaGeneralRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TestTable
+          DEBUG: true
+      Events:
+        Get:
+          Type: Api 
+          Properties:
+            Path: /test/{id}
+            Method: GET
+        Create:
+          Type: Api 
+          Properties:
+            Path: /test
+            Method: POST
+        Update:
+          Type: Api 
+          Properties:
+            Path: /test/{id}
+            Method: PUT
+        Delete:
+          Type: Api 
+          Properties:
+            Path: /test/{id}
+            Method: DELETE
+  TriggerFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: trigger/
+      Handler: app.lambdaHandler
+      Runtime: nodejs10.x
+      Role: !GetAtt LambdaGeneralRole.Arn
+      Environment:
+        Variables:
+          SECRET_ARN: !Ref RDSDataApiSecret
+          DB_ARN: !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${AuroraServerlessCluster.Outputs.Name}'
+          TABLE_NAME: !Ref TableName
+          DB_NAME: !Ref DBName
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt TestTable.StreamArn
+            BatchSize: 100
+            StartingPosition: TRIM_HORIZON
+
+  #DYNAMODB
+  TestTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "id"
+          KeyType: "HASH"
+      TableName: !Sub ${TableName}
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+
+Outputs:
+  ModuleId:
+    Value: 'aws-rdsdynamo'
+  StackName:
+    Value: !Ref 'AWS::StackName'
+  TableName:
+    Value: !Ref TableName
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+  DBName:
+    Value: !Ref DBName
+    Export:
+      Name: !Sub '${AWS::StackName}-DBName'
+  DBSecretArn:
+    Value: !Ref RDSDataApiSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-DBSecretArn'
+  DBArn:
+    Value: !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${AuroraServerlessCluster.Outputs.Name}'
+    Export:
+      Name: !Sub '${AWS::StackName}-DBArn'
