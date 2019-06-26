@@ -12,8 +12,7 @@ It utilizes new data API feature of Aurora Serverless, so that's why there is so
 
 -   AWS CLI already configured with Administrator permission
 -   [NodeJS 8.10+ installed](https://nodejs.org/en/download/)
-    develop sam locally
--   See [Serverless Application Model (SAM) HOWTO Guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-quick-start.html) for more details in how to get started.
+-   SAM - See [Serverless Application Model (SAM) HOWTO Guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-quick-start.html) for more details in how to get started.
 -   [Docker installed](https://www.docker.com/community-edition) - required to develop locally
 
 ## Deploy
