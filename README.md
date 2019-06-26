@@ -16,6 +16,7 @@ It utilizes new data API feature of Aurora Serverless, so that's why there is so
 -   [Docker installed](https://www.docker.com/community-edition) - required to develop locally
 
 ## Deploy
+Note: some supporting scripts are in powereshell, but it's easy to convert it to bash or simply [install powershell in linux](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell-core-on-linux) ;-)
 
 ##### 1) cfn-modules
 
