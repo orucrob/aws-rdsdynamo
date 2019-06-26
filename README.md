@@ -16,7 +16,7 @@ It utilizes new data API feature of Aurora Serverless, so that's why there is so
 -   See [Serverless Application Model (SAM) HOWTO Guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-quick-start.html) for more details in how to get started.
 -   [Docker installed](https://www.docker.com/community-edition) - required to
 
-##Deploy
+## Deploy
 
 ##### 1) cfn-modules
 
