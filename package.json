@@ -1,5 +1,5 @@
 {
-    "name": "hbr-infra",
+    "name": "aws-rdsdynamo",
     "dependencies": {
         "@cfn-modules/client-sg": "^1.0.0",
         "@cfn-modules/kms-key": "^1.1.0",
