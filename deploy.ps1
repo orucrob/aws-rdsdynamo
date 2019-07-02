@@ -14,7 +14,7 @@ Write-Host "Packaging..."
 Invoke-Expression "sam package --output-template-file packaged.yaml --template-file template.yaml --s3-bucket $s3Bucket $profile"
 
 Write-Host "Deploying..."
-Invoke-Expression "sam deploy --template-file .\packaged.yaml --stack-name aws-rdsdynamo --capabilities CAPABILITY_IAM, CAPABILITY_NAMED_IAM  $s3Bucket"
+Invoke-Expression "sam deploy --template-file .\packaged.yaml --stack-name aws-rdsdynamo --capabilities CAPABILITY_IAM, CAPABILITY_NAMED_IAM  $profile"
 
 
 Write-Host "Done."
