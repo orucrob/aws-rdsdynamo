@@ -23,7 +23,7 @@ Note: some supporting scripts are in powereshell, but it's easy to convert it to
 At first, we use `cfn-modules` to simplify deployment. It's specified in `package.json` so to install it just simply run:
 
 ```powershell
-npm instll
+npm install
 ```
 
 ##### 2) bare deployment
